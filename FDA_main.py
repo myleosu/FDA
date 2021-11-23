@@ -1,11 +1,18 @@
+import copy
 from math import floor
 import scipy.io
 import numpy as np
 import random
 import itertools
+from scipy.sparse import data, dia
 from sklearn import svm
+import sklearn
 from sklearn.model_selection import train_test_split
+from sklearn import tree
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from copy import deepcopy
+from RGB_Color_Generate import ncolors
+from PIL import Image
 
 file_name = "indiaP.mat"
 no_classes = 16
@@ -18,12 +25,37 @@ def train_FDA(x1,x2):
     S2 = np.dot((x2 - m2).T,(x2 - m2))
     SW = S1 + S2
     W = np.dot(np.linalg.pinv(SW),(m1-m2).T)
-    
     w0 = (np.dot(m1, W) + np.dot(m2, W)) / 2
-    # w0 = -1/2*np.dot((m1+m2),W) #阈值
     return W,w0
 
-def train_one2one_FDA_Model():
+def Fisher_lda(X, Y, n_dim):
+    '''
+        Fisher降维函数
+    '''
+    if n_dim > no_classes - 1:
+        ValueError("n_dim > no_classes , Error!")
+        exit(0)
+    n = X.shape[1]
+    m = np.mean(X, axis=0).reshape(1, n)
+    SW = np.zeros((n, n))
+    SB = np.zeros((n, n))
+    for i in range(1, no_classes + 1):
+        X_i = X[Y == i]
+        m_i = np.mean(X_i, axis=0).reshape(1, n)
+        SW_i = np.dot((X_i - m_i).T, (X_i - m_i))
+        SW += SW_i
+        Ni = X_i.shape[0]
+        SB_i = Ni * (m - m_i).T @ (m - m_i)
+        SB += SB_i
+    S = np.dot(np.linalg.pinv(SW), SB)
+    eigVals, eigVects = np.linalg.eig(S)
+    eigInd = np.argsort(-eigVals)
+    eigInd = eigInd[:n_dim]
+    W = eigVects[:, eigInd]
+    data_ndim = X @ W.real
+    return data_ndim, W.real
+
+def train_one2one_FDA_Model(train_data_dict):
     '''
         FDA one2one 模型训练函数
         Input:
@@ -41,7 +73,7 @@ def train_one2one_FDA_Model():
             W0_numbers.append(w0)
     return W_numbers, W0_numbers
 
-def train_one2rest_FDA_Model():
+# def train_one2rest_FDA_Model():
     '''
         FDA one2rest 模型训练函数
         Input:
@@ -94,7 +126,7 @@ def test_one2one_FDA_Model(x, W_numbers, W0_numbers):
     y = max_index + 1
     return y
 
-def test_one2rest_FDA_Model(x, W_numbers, W0_numbers, m_numbers):
+# def test_one2rest_FDA_Model(x, W_numbers, W0_numbers, m_numbers):
     '''
         FDA one2rest 模型预测函数
         Input:
@@ -136,7 +168,7 @@ def test_between_two_classes(flag1, flag2):
             right_cnt = right_cnt + 1
     return (right_cnt * 1.0) / total_cnt
 
-def test_between_one2other_classes(flag):
+# def test_between_one2other_classes(flag):
     '''
         测试数据集中二分类的准确率
         Input:
@@ -170,7 +202,7 @@ def normalization(data):
     _range = np.max(abs(data))
     return data / _range
 
-def my_train_test_split(useful_data, useful_data_label, test_size=0.9, random_state=None):
+# def my_train_test_split(useful_data, useful_data_label, test_size=0.9, random_state=None):
     if random_state != None:
         random.seed(random_state)
     total_data_index_dict = {'1':[], '2':[], '3':[], '4':[], '5':[], '6':[], '7':[], '8':[], '9':[], '10':[],
@@ -275,76 +307,157 @@ def loadData():
             data_list[i][j] = int(eval(data_list[i][j]))
     return np.array(data_list), np.array(label_list)
 
-print("正在加载数据...")
-img_data, GroundT_data = loadData()
-useful_data = []
-useful_data_label = []
+def getColors():
+    class_colors = ncolors(no_classes)
+    return class_colors
 
-for i in range(GroundT_data.shape[0]):
-    useful_data.append(img_data[ GroundT_data[i][0] - 1 ])
-    useful_data_label.append(GroundT_data[i][1])
+flag = True
+global_useful_data = None
+global_useful_data_label = None
+global_img_data = None
+global_GroundT_data = None 
+def getData():
+    '''
+        return useful_data, useful_data_label, img_data, GroundT_data
+    '''
+    global flag
+    global global_useful_data
+    global global_useful_data_label
+    global global_img_data
+    global global_GroundT_data
+    if flag:
+        print("正在加载数据...")
+        img_data, GroundT_data = loadData()
+        useful_data = []
+        useful_data_label = []
 
-useful_data = np.array(useful_data)
-# useful_data = normalization(np.array(useful_data))# 归一化数据
-useful_data_label = np.array(useful_data_label)
-print("加载数据完毕！")
+        for i in range(GroundT_data.shape[0]):
+            useful_data.append(img_data[ GroundT_data[i][0] - 1 ])
+            useful_data_label.append(GroundT_data[i][1])
 
-X_train, X_test, y_train, y_test = my_train_test_split(useful_data, useful_data_label, test_size=0.9, random_state=1234)
-# X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=0.9, random_state=1)
+        useful_data = np.array(useful_data)
+        # useful_data = normalization(np.array(useful_data))# 归一化数据
+        useful_data_label = np.array(useful_data_label)
 
-clf = svm.SVC(kernel='linear', decision_function_shape='ovo', max_iter=1e6)
-clf.fit(X_train, y_train.ravel())
-print("SVM训练集准确率：{}".format(clf.score(X_train, y_train)))
-print("SVM测试集准确率: {}".format(clf.score(X_test, y_test)))
+        global_useful_data = useful_data
+        global_useful_data_label = useful_data_label
+        global_img_data = img_data
+        global_GroundT_data = GroundT_data
+        print("加载数据完毕！")
+        flag = False
+    return copy.deepcopy(global_useful_data), copy.deepcopy(global_useful_data_label), copy.deepcopy(global_img_data), copy.deepcopy(global_GroundT_data)
 
-train_data_dict = {'1':[], '2':[], '3':[], '4':[], '5':[], '6':[], '7':[], '8':[], '9':[], '10':[],
-                 '11':[], '12':[], '13':[], '14':[], '15':[], '16':[]}
-for i in range(X_train.shape[0]):
-    train_data_dict[str(y_train[i])].append(X_train[i])
-for i in range(no_classes):
-    train_data_dict[str(i + 1)] = np.array(train_data_dict[str(i + 1)])
-    print("{} label number is :{}".format(i+1, train_data_dict[str(i + 1)].shape))
+def run_one2one_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_reduction_number=no_classes-1):
+    '''
+        return oa, aa, K, ua
+    '''
+    useful_data, useful_data_label, img_data, GroundT_data = getData()
+    class_colors = getColors()
 
-# ***************************************************************测试各分类器的QA
+    useful_data = copy.deepcopy(useful_data)
+    if is_dim_reduction:
+        useful_data, Fisher_lda_W = Fisher_lda(useful_data, useful_data_label, dim_reduction_number)
+        img_data = img_data @ Fisher_lda_W
+    X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=test_size, random_state=random_state)
+    train_data_dict = {'1':[], '2':[], '3':[], '4':[], '5':[], '6':[], '7':[], '8':[], '9':[], '10':[],
+                    '11':[], '12':[], '13':[], '14':[], '15':[], '16':[]}
+    for i in range(X_train.shape[0]):
+        train_data_dict[str(y_train[i])].append(X_train[i])
+    for i in range(no_classes):
+        train_data_dict[str(i + 1)] = np.array(train_data_dict[str(i + 1)])
+        # print("{} label number is :{}".format(i+1, train_data_dict[str(i + 1)].shape))
+    
+    print("正在训练Fisher one2one模型...")
+    one2one_W_numbers, one2one_W0_numbers = train_one2one_FDA_Model(train_data_dict)
+    print("训练完毕！")
+    
+    estim_labels = []
+    for col in range(X_test.shape[0]):
+        predict_y = test_one2one_FDA_Model(X_test[col], one2one_W_numbers, one2one_W0_numbers)
+        estim_labels.append(predict_y)
+    estim_labels = np.array(estim_labels)
+    oa , aa, K, ua = confusion(y_test, estim_labels)
 
-# total_acc = 0.0
-# for i in range(1, no_classes + 1):
-#     total_acc += test_between_one2other_classes(i)
-#     print("[{} , others] -> {}".format(i, test_between_one2other_classes(i)))
-# print(total_acc / no_classes)
+    result_image = np.zeros((145 * 145, 3))
+    for i in range(GroundT_data.shape[0]):
+        index = GroundT_data[i][0]
+        predict_y = test_one2one_FDA_Model(img_data[ index - 1 ], one2one_W_numbers, one2one_W0_numbers)
+        result_image[index] = class_colors[predict_y - 1]
+    result_image = result_image.reshape((145, 145, 3))
+    result_image = result_image.transpose((1, 0, 2))
+    # print("Fisher模型测试集检验结果：\noa : {}\naa : {}\nK:{}\nua:{}".format(oa, aa, K, ua.reshape(no_classes, 1)))
+    return oa, aa, K, ua, result_image
 
-# ****************************************************************一对多 OVR
+def run_SVM_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_reduction_number=no_classes-1):
+    '''
+        return oa, aa, K, ua
+    '''
+    useful_data, useful_data_label, img_data, GroundT_data = getData()
+    class_colors = getColors()
 
-# one2rest_W_numbers, one2rest_W0_numbers, one2rest_m_numbers = train_one2rest_FDA_Model()
+    if is_dim_reduction:
+        useful_data, _ = Fisher_lda(useful_data, useful_data_label, dim_reduction_number)
+    X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=test_size, random_state=random_state)
 
+    clf = svm.SVC(kernel='linear', decision_function_shape='ovo', max_iter=1e7)# max_iter=1e6
+    print("正在训练SVM模型...")
+    clf.fit(X_train, y_train.ravel())
+    print("训练完毕!")
+    # print("SVM训练集准确率：{}".format(clf.score(X_train, y_train)))
+    # print("SVM测试集准确率: {}".format(clf.score(X_test, y_test)))
 
-# right_numbers = 0
-# for col in range(X_test.shape[0]):
-#     predict_y = test_one2rest_FDA_Model(X_test[col], one2rest_W_numbers, one2rest_W0_numbers, one2rest_m_numbers)
-#     if predict_y == y_test[i]:
-#         right_numbers += 1
-# print("y_test shape : {}".format(y_test.shape))
-# print("predict right numbers : {}".format(right_numbers))
-# print("QA: {}".format(right_numbers / y_test.shape[0]))
-# print("total_cnt_sum: {}".format(total_cnt_sum))
+    estim_labels = clf.predict(X_test)
+    oa, aa ,K, ua = confusion(y_test, estim_labels)
+    # print("SVM模型测试集检验结果：\noa : {}\naa : {}\nK:{}\nua:{}".format(oa, aa, K, ua.reshape(no_classes, 1)))
+    return oa, aa, K, ua
 
-# ****************************************************************一对一 OVO
+def run_DecisionTree_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_reduction_number=no_classes-1):
+    '''
+        return oa, aa, K, ua
+    '''
+    useful_data, useful_data_label, img_data, GroundT_data = getData()
+    class_colors = getColors()
 
-one2one_W_numbers, one2one_W0_numbers = train_one2one_FDA_Model()
+    if is_dim_reduction:
+        useful_data, _ = Fisher_lda(useful_data, useful_data_label, dim_reduction_number)
+    X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=test_size, random_state=random_state)
 
-estim_labels = []
-for col in range(X_test.shape[0]):
-    predict_y = test_one2one_FDA_Model(X_test[col], one2one_W_numbers, one2one_W0_numbers)
-    estim_labels.append(predict_y)
-estim_labels = np.array(estim_labels)
-oa , aa, K, ua = confusion(y_test, estim_labels)
-print("Fisher模型测试集检验结果：\noa : {}\naa : {}\nK:{}\nua:{}".format(oa, aa, K, ua.reshape(no_classes, 1)))
+    clf = tree.DecisionTreeClassifier()
+    print("正在训练决策树模型...")
+    clf=clf.fit(X_train, y_train)
+    print("训练完毕！")
+    # print("决策树训练集准确率：{}".format(clf.score(X_train, y_train)))
+    # print("决策树测试集准确率: {}".format(clf.score(X_test, y_test)))
 
-# ***************************************************************测试各分类器的QA
+    estim_labels = clf.predict(X_test)
+    oa, aa ,K, ua = confusion(y_test, estim_labels)
+    # print("决策树模型测试集检验结果：\noa : {}\naa : {}\nK:{}\nua:{}".format(oa, aa, K, ua.reshape(no_classes, 1)))
+    return oa, aa, K, ua
 
-# t = 0.0
-# for i in range(1, no_classes + 1):
-#     for j in range(i + 1, no_classes + 1):
-#         t += test_between_two_classes(i, j)
-#         print("[{} , {}] -> {}".format(i, j, test_between_two_classes(i, j)))
-# print(t / (no_classes * (no_classes - 1) / 2))
+if __name__ == "__main__":
+    _, _, _, _, result_image = run_one2one_model(is_dim_reduction=True)
+    run_SVM_model(is_dim_reduction=True)
+    run_DecisionTree_model(is_dim_reduction=True)
+    _, _, _, _, result_image = run_one2one_model(is_dim_reduction=True)
+    run_SVM_model(is_dim_reduction=True)
+    run_DecisionTree_model(is_dim_reduction=True)
+    # result_image = Image.fromarray(np.uint8(result_image))
+    # result_image.show()
+    # result_image.save("image2.jpeg", 'JPEG', quality=95)
+    exit(0)
+    # ***************************************************************测试各分类器的QA
+
+    # total_acc = 0.0
+    # for i in range(1, no_classes + 1):
+    #     total_acc += test_between_one2other_classes(i)
+    #     print("[{} , others] -> {}".format(i, test_between_one2other_classes(i)))
+    # print(total_acc / no_classes)
+
+    # ***************************************************************测试各分类器的QA
+
+    # t = 0.0
+    # for i in range(1, no_classes + 1):
+    #     for j in range(i + 1, no_classes + 1):
+    #         t += test_between_two_classes(i, j)
+    #         print("[{} , {}] -> {}".format(i, j, test_between_two_classes(i, j)))
+    # print(t / (no_classes * (no_classes - 1) / 2))
