@@ -349,16 +349,29 @@ def getData():
 
 def run_one2one_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_reduction_number=no_classes-1):
     '''
-        return oa, aa, K, ua
+        Input:
+            test_size: 测试集比例，默认0.9
+            rand_state:随机数种子，None代表随机，默认为1234
+            is_dim_reduction：代表是否进行FDA降维。
+            dim_reduction_number： 代表降维维数，默认为标签种类减1
+        Output:
+            return oa, aa, K, ua
     '''
     useful_data, useful_data_label, img_data, GroundT_data = getData()
     class_colors = getColors()
 
     useful_data = copy.deepcopy(useful_data)
-    if is_dim_reduction:
-        useful_data, Fisher_lda_W = Fisher_lda(useful_data, useful_data_label, dim_reduction_number)
-        img_data = img_data @ Fisher_lda_W
     X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=test_size, random_state=random_state)
+    if is_dim_reduction:
+        X_train, Fisher_lda_W = Fisher_lda(X_train, y_train, dim_reduction_number)
+        X_test = X_test @ Fisher_lda_W
+        img_data = img_data @ Fisher_lda_W
+        # lda = LinearDiscriminantAnalysis(n_components=15)
+        # lda.fit(X_train, y_train)
+        # X_train = lda.transform(X_train)
+        # X_test = lda.transform(X_test)
+        # img_data = lda.transform(img_data)
+    
     train_data_dict = {'1':[], '2':[], '3':[], '4':[], '5':[], '6':[], '7':[], '8':[], '9':[], '10':[],
                     '11':[], '12':[], '13':[], '14':[], '15':[], '16':[]}
     for i in range(X_train.shape[0]):
@@ -390,21 +403,33 @@ def run_one2one_model(test_size=0.9, random_state=1234, is_dim_reduction=False, 
 
 def run_SVM_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_reduction_number=no_classes-1):
     '''
-        return oa, aa, K, ua
+        Input:
+        test_size: 测试集比例，默认0.9
+        rand_state:随机数种子，None代表随机，默认为1234
+        is_dim_reduction：代表是否进行FDA降维。
+        dim_reduction_number： 代表降维维数，默认为标签种类减1
+        Output:
+            return oa, aa, K, ua
     '''
     useful_data, useful_data_label, img_data, GroundT_data = getData()
     class_colors = getColors()
 
-    if is_dim_reduction:
-        useful_data, _ = Fisher_lda(useful_data, useful_data_label, dim_reduction_number)
     X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=test_size, random_state=random_state)
+    if is_dim_reduction:
+        X_train, Fisher_lda_W = Fisher_lda(X_train, y_train, dim_reduction_number)
+        X_test = X_test @ Fisher_lda_W
+        img_data = img_data @ Fisher_lda_W
+        # lda = LinearDiscriminantAnalysis(n_components=15)
+        # lda.fit(X_train, y_train)
+        # X_train = lda.transform(X_train)
+        # X_test = lda.transform(X_test)
+        # img_data = lda.transform(img_data)
 
     clf = svm.SVC(kernel='linear', decision_function_shape='ovo', max_iter=1e7)# max_iter=1e6
+    # clf = svm.SVC(max_iter=1e7)# max_iter=1e6
     print("正在训练SVM模型...")
     clf.fit(X_train, y_train.ravel())
     print("训练完毕!")
-    # print("SVM训练集准确率：{}".format(clf.score(X_train, y_train)))
-    # print("SVM测试集准确率: {}".format(clf.score(X_test, y_test)))
 
     estim_labels = clf.predict(X_test)
     oa, aa ,K, ua = confusion(y_test, estim_labels)
@@ -413,21 +438,32 @@ def run_SVM_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_
 
 def run_DecisionTree_model(test_size=0.9, random_state=1234, is_dim_reduction=False, dim_reduction_number=no_classes-1):
     '''
-        return oa, aa, K, ua
+        Input:
+        test_size: 测试集比例，默认0.9
+        rand_state:随机数种子，None代表随机，默认为1234
+        is_dim_reduction：代表是否进行FDA降维。
+        dim_reduction_number： 代表降维维数，默认为标签种类减1
+        Output:
+            return oa, aa, K, ua
     '''
     useful_data, useful_data_label, img_data, GroundT_data = getData()
     class_colors = getColors()
 
-    if is_dim_reduction:
-        useful_data, _ = Fisher_lda(useful_data, useful_data_label, dim_reduction_number)
     X_train, X_test, y_train, y_test = train_test_split(useful_data, useful_data_label, test_size=test_size, random_state=random_state)
+    if is_dim_reduction:
+        X_train, Fisher_lda_W = Fisher_lda(X_train, y_train, dim_reduction_number)
+        X_test = X_test @ Fisher_lda_W
+        img_data = img_data @ Fisher_lda_W
+        # lda = LinearDiscriminantAnalysis(n_components=10)
+        # lda.fit(X_train, y_train)
+        # X_train = lda.transform(X_train)
+        # X_test = lda.transform(X_test)
+        # img_data = lda.transform(img_data)
 
     clf = tree.DecisionTreeClassifier()
     print("正在训练决策树模型...")
     clf=clf.fit(X_train, y_train)
     print("训练完毕！")
-    # print("决策树训练集准确率：{}".format(clf.score(X_train, y_train)))
-    # print("决策树测试集准确率: {}".format(clf.score(X_test, y_test)))
 
     estim_labels = clf.predict(X_test)
     oa, aa ,K, ua = confusion(y_test, estim_labels)
@@ -435,12 +471,13 @@ def run_DecisionTree_model(test_size=0.9, random_state=1234, is_dim_reduction=Fa
     return oa, aa, K, ua
 
 if __name__ == "__main__":
-    _, _, _, _, result_image = run_one2one_model(is_dim_reduction=True)
-    run_SVM_model(is_dim_reduction=True)
-    run_DecisionTree_model(is_dim_reduction=True)
-    _, _, _, _, result_image = run_one2one_model(is_dim_reduction=True)
-    run_SVM_model(is_dim_reduction=True)
-    run_DecisionTree_model(is_dim_reduction=True)
+    run_one2one_model()
+    run_one2one_model(is_dim_reduction=True)
+    # run_SVM_model(is_dim_reduction=True)
+    # run_DecisionTree_model(is_dim_reduction=True)
+    # _, _, _, _, result_image = run_one2one_model(is_dim_reduction=True)
+    # run_SVM_model(is_dim_reduction=True)
+    # run_DecisionTree_model(is_dim_reduction=True)
     # result_image = Image.fromarray(np.uint8(result_image))
     # result_image.show()
     # result_image.save("image2.jpeg", 'JPEG', quality=95)
