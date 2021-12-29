@@ -11,6 +11,8 @@ from sklearn.model_selection import train_test_split
 from sklearn import tree
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from copy import deepcopy
+
+from sklearn.utils import validation
 from RGB_Color_Generate import ncolors
 from PIL import Image
 
@@ -41,13 +43,15 @@ def Fisher_lda(X, Y, n_dim):
     SB = np.zeros((n, n))
     for i in range(1, no_classes + 1):
         X_i = X[Y == i]
+        if X_i.size == 0:
+            ValueError("X_i size is zero, Error!")
         m_i = np.mean(X_i, axis=0).reshape(1, n)
-        SW_i = np.dot((X_i - m_i).T, (X_i - m_i))
+        SW_i = (X_i - m_i).T @ (X_i - m_i)
         SW += SW_i
         Ni = X_i.shape[0]
-        SB_i = Ni * (m - m_i).T @ (m - m_i)
+        SB_i = Ni * ((m - m_i).T @ (m - m_i))
         SB += SB_i
-    S = np.dot(np.linalg.pinv(SW), SB)
+    S = np.linalg.pinv(SW) @ SB
     eigVals, eigVects = np.linalg.eig(S)
     eigInd = np.argsort(-eigVals)
     eigInd = eigInd[:n_dim]
@@ -471,7 +475,7 @@ def run_DecisionTree_model(test_size=0.9, random_state=1234, is_dim_reduction=Fa
     return oa, aa, K, ua
 
 if __name__ == "__main__":
-    run_one2one_model()
+    # run_one2one_model()
     run_one2one_model(is_dim_reduction=True)
     # run_SVM_model(is_dim_reduction=True)
     # run_DecisionTree_model(is_dim_reduction=True)
